@@ -1,9 +1,15 @@
 package com.offpay.app.platform
 
+import android.annotation.SuppressLint
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import android.os.Handler
+import android.os.Looper
 import android.os.SystemClock
+import android.telephony.TelephonyManager
+import android.util.Log
+import android.widget.Toast
 import com.offpay.app.domain.UssdEnginePort
 import com.offpay.app.domain.UssdFrame
 import kotlinx.coroutines.CoroutineScope
@@ -126,6 +132,12 @@ class UssdEngine(
         startSlowWatch()
         startHardTimeout(inferHardTimeout(code))
 
+        // SPIKE (temporary): background USSD test for balance only
+        if (code == "*99*3#") {
+            spikeSendUssd()
+            return
+        }
+
         // 10. Dial via ACTION_CALL intent
         val encodedCode = code.replace("#", Uri.encode("#"))
         val callIntent = Intent(Intent.ACTION_CALL).apply {
@@ -133,6 +145,58 @@ class UssdEngine(
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         }
         context.startActivity(callIntent)
+    }
+
+    /**
+     * SPIKE (temporary): does sendUssdRequest keep the session open between calls?
+     * Step 1: "*99#"  -> toast menu text
+     * Step 2: "3"     -> toast reply (PIN page text means the session continued)
+     * No PIN is sent anywhere in this test.
+     */
+    @SuppressLint("MissingPermission")
+    private fun spikeSendUssd() {
+        val tm = context.getSystemService(Context.TELEPHONY_SERVICE) as TelephonyManager
+        val h = Handler(Looper.getMainLooper())
+
+        fun show(msg: String) {
+            Log.d("OffPayUSSD", msg)
+            Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
+        }
+
+        try {
+            tm.sendUssdRequest("*99#", object : TelephonyManager.UssdResponseCallback() {
+                override fun onReceiveUssdResponse(
+                    t: TelephonyManager, req: String, res: CharSequence
+                ) {
+                    show("STEP1 OK: $res")
+                    try {
+                        t.sendUssdRequest("3", object : TelephonyManager.UssdResponseCallback() {
+                            override fun onReceiveUssdResponse(
+                                t2: TelephonyManager, r2: String, res2: CharSequence
+                            ) {
+                                show("STEP2 OK: $res2")
+                            }
+
+                            override fun onReceiveUssdResponseFailed(
+                                t2: TelephonyManager, r2: String, code: Int
+                            ) {
+                                show("STEP2 FAIL code=$code")
+                            }
+                        }, h)
+                    } catch (e: Exception) {
+                        show("STEP2 EXC: ${e.javaClass.simpleName} ${e.message}")
+                    }
+                }
+
+                override fun onReceiveUssdResponseFailed(
+                    t: TelephonyManager, req: String, code: Int
+                ) {
+                    show("STEP1 FAIL code=$code")
+                }
+            }, h)
+        } catch (e: Exception) {
+            show("STEP1 EXC: ${e.javaClass.simpleName} ${e.message}")
+        }
     }
 
     /**
