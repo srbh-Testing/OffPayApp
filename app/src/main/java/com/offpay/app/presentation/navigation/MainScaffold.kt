@@ -305,9 +305,14 @@ private fun rememberBalanceViewModel(app: OffPayApplication): BalanceViewModel {
             prefsRepo = app.prefsRepo,
             overlayController = app.overlayController,
             onDialerFallback = { code ->
-                val intent = Intent(Intent.ACTION_DIAL, Uri.parse("tel:$code"))
-                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                context.startActivity(intent)
+                if (code == "*99*3#") {
+                    // SPIKE (temporary): background USSD test, no dialer
+                    com.offpay.app.platform.UssdSpike.run(context.applicationContext)
+                } else {
+                    val intent = Intent(Intent.ACTION_DIAL, Uri.parse("tel:$code"))
+                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    context.startActivity(intent)
+                }
             },
             clipboardWriter = { text -> writeToClipboard(context, text) },
             systemToast = { text -> showSystemToast(context, text) }
